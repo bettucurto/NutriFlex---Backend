@@ -14,7 +14,7 @@ const {
   getIngredienteById,
   addIngrediente,
   updateIngrediente,
-  deleteIngrediente,
+  deleteIngrediente, deleteIngredientesByRefeicao,
 
   //Receitas
   searchReceitasFatSecret,
@@ -41,7 +41,7 @@ router.post('/image', authenticateToken, uploadImagem, recognizeFoodFromImage);
 
 
 // --- Refeições ---
-router.get('/user/:id_user', authenticateToken, getRefeicoesByUser);
+router.get('/user/:userId', authenticateToken, getRefeicoesByUser);
 router.post('/', authenticateToken, addRefeicaoFavorita);
 router.put('/:id', authenticateToken, updateRefeicaoFavorita);
 router.delete('/:id', authenticateToken, deleteRefeicaoFavorita);
@@ -61,6 +61,7 @@ router.get('/ingredientes/item/:id', authenticateToken, getIngredienteById);
 router.post('/ingredientes', authenticateToken, addIngrediente);
 router.put('/ingredientes/:id', authenticateToken, updateIngrediente);
 router.delete('/ingredientes/:id', authenticateToken, deleteIngrediente);
+router.delete('/ingredientes/refeicao/:id_refeicao', authenticateToken, deleteIngredientesByRefeicao);
 
 
 module.exports = router;

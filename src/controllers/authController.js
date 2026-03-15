@@ -65,13 +65,20 @@ exports.registerUser = async (req, res) => {
     const [users] = await db.query('SELECT * FROM users WHERE id = ?', [userId]);
     const newUser = users[0];
 
+    // --- Criação Obrigatória da Pasta Default de Treinos ---
+    // Esta criação é BLOQUEANTE para garantir a sincronia com o cliente Android
+    await db.query(
+      "INSERT INTO pastas_treinos (nome, id_user, visibilidade, is_deletable) VALUES (?, ?, 'privada', 0)",
+      ['Your Workouts', userId]
+    );
+
     // Gera token JWT para o novo utilizador
     const token = generateToken(newUser);
 
     res.status(201).json({ token});
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erro no registo' });
+    console.error('Erro no registo:', err);
+    res.status(500).json({ error: 'Erro no registo e configuração da conta' });
   }
 };
 

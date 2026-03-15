@@ -19,8 +19,12 @@ const {
   getExercicioSets,
   updateExercicioSet,
   deleteExercicioSet,
-  searchExercisesController,
-  getExerciseByIdController
+  getExercisesController,
+  getExerciseByIdController,
+  getExerciseDbBodyParts,
+  getExerciseDbEquipments,
+  getExerciseDbMuscles,
+  getExerciseDbTypes,
 } = require('../controllers/treinoController');
 const authenticateToken = require('../utils/authMiddleware');
 
@@ -51,7 +55,13 @@ router.put('/set/:id', authenticateToken, updateExercicioSet);
 router.delete('/set/:id', authenticateToken, deleteExercicioSet);
 
 //ExerciseDB
-router.get('/exercises', authenticateToken, searchExercisesController);
+router.get('/exercises', authenticateToken, getExercisesController);
 router.get('/exercise/:id', authenticateToken, getExerciseByIdController);
+
+// Filtros ExerciseDB (Tabelas Locais)
+router.get('/exercisedb/bodyparts', authenticateToken, getExerciseDbBodyParts);
+router.get('/exercisedb/equipments', authenticateToken, getExerciseDbEquipments);
+router.get('/exercisedb/muscles', authenticateToken, getExerciseDbMuscles);
+router.get('/exercisedb/types', authenticateToken, getExerciseDbTypes);
 
 module.exports = router;

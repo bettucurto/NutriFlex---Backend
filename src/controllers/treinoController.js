@@ -112,11 +112,11 @@ exports.duplicatePastaGlobal = async (req, res) => {
         [sessao.id]
       );
 
-      // Duplicar exercÃ­cios
+      // Duplicar exercÃƒÂ­cios
       for (const ex of exercicios) {
         await db.query(
-          'INSERT INTO sessao_exercicios (exercicio_api_id, notas, id_sessao, imagem, bodypart) VALUES (?, ?, ?, ?, ?)',
-          [ex.exercicio_api_id, ex.notas, novaSessaoId, ex.imagem, ex.bodypart]
+          'INSERT INTO sessao_exercicios (exercicio_api_id, nome, notas, id_sessao, imagem, bodypart) VALUES (?, ?, ?, ?, ?, ?)',
+          [ex.exercicio_api_id, ex.nome, ex.notas, novaSessaoId, ex.imagem, ex.bodypart]
         );
       }
 
@@ -148,21 +148,72 @@ exports.updatePasta = async (req, res) => {
 
 //Sessões
 exports.createSessao = async (req, res) => {
-  const { nome, id_pasta } = req.body;
+  const { nome, id_pasta, exercicios } = req.body;
   if (!nome || !id_pasta) {
     return res.status(400).json({ error: 'Campos obrigatórios em falta' });
   }
+
   try {
-    const [result] = await db.query(
-      'INSERT INTO sessoes (nome, id_pasta) VALUES (?, ?)',
+    // Lógica de Encadeamento Circular (Passo A e B)
+    const [firstSessions] = await db.query(
+      'SELECT id FROM sessoes WHERE id_pasta = ? ORDER BY id ASC LIMIT 1',
+      [id_pasta]
+    );
+    const [lastSessions] = await db.query(
+      'SELECT id FROM sessoes WHERE id_pasta = ? ORDER BY id DESC LIMIT 1',
+      [id_pasta]
+    );
+
+    const firstSessionId = firstSessions.length > 0 ? firstSessions[0].id : null;
+    const lastSessionId = lastSessions.length > 0 ? lastSessions[0].id : null;
+
+    const [resultSessao] = await db.query(
+      'INSERT INTO sessoes (nome, id_pasta, id_Proxim_sessao) VALUES (?, ?, NULL)',
       [nome, id_pasta]
     );
-    res.status(201).json({ 
-      message: 'Sessão criada com sucesso', 
-      sessao: { id: result.insertId, nome, id_pasta } 
+    const newSessionId = resultSessao.insertId;
+
+    // Passo C: Fechar o Loop Circular
+    if (!firstSessionId) {
+      await db.query('UPDATE sessoes SET id_Proxim_sessao = ? WHERE id = ?', [newSessionId, newSessionId]);
+    } else {
+      await db.query('UPDATE sessoes SET id_Proxim_sessao = ? WHERE id = ?', [firstSessionId, newSessionId]);
+      await db.query('UPDATE sessoes SET id_Proxim_sessao = ? WHERE id = ?', [newSessionId, lastSessionId]);
+    }
+
+    // --- Inserção de Exercícios e Sets ---
+    if (exercicios && Array.isArray(exercicios)) {
+      for (const ex of exercicios) {
+        const [resultEx] = await db.query(
+          'INSERT INTO sessao_exercicios (id_sessao, exercicio_api_id, nome, notas, ordem, imagem, bodypart) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [newSessionId, ex.id_exercicio, ex.nome, ex.notas, ex.ordem, ex.imagem, ex.bodypart]
+        );
+        const newExId = resultEx.insertId;
+
+        if (ex.sets && Array.isArray(ex.sets)) {
+          for (const set of ex.sets) {
+            // Extração segura com fallbacks para evitar ER_BAD_NULL_ERROR
+            const tipo_set = set.tipo_set || 'REGULAR';
+            const peso = set.peso || 0;
+            const repeticoes_min = set.repeticoes_min || 0;
+            const repeticoes_max = set.repeticoes_max || 0;
+            const ordem = set.ordem || 1;
+
+            await db.query(
+              'INSERT INTO exercicio_sets (tipo_set, peso, repeticoes_min, repeticoes_max, ordem, id_exercicio, repeticoes_ultima_vez) VALUES (?, ?, ?, ?, ?, ?, 0)',
+              [tipo_set, peso, repeticoes_min, repeticoes_max, ordem, newExId]
+            );
+          }
+        }
+      }
+    }
+
+    res.status(201).json({
+      message: 'Sessão e exercícios criados com sucesso',
+      sessao: { id: newSessionId, nome, id_pasta, id_Proxim_sessao: firstSessionId || newSessionId }
     });
   } catch (err) {
-    console.error(err);
+    console.error('Erro ao criar sessão completa:', err);
     res.status(500).json({ error: 'Erro ao criar sessão' });
   }
 };
@@ -181,32 +232,128 @@ exports.getSessoes = async (req, res) => {
 exports.deleteSessao = async (req, res) => {
   const { id } = req.params;
   try {
+    // Passo A: Descobrir as Ligações (quem aponta para esta sessão e para onde ela aponta)
+    const [currentSession] = await db.query(
+      'SELECT id_pasta, id_Proxim_sessao FROM sessoes WHERE id = ?',
+      [id]
+    );
+
+    if (currentSession.length > 0) {
+      const { id_pasta, id_Proxim_sessao: nextId } = currentSession[0];
+
+      // Encontrar quem aponta para esta sessão (prevId)
+      const [prevSessions] = await db.query(
+        'SELECT id FROM sessoes WHERE id_pasta = ? AND id_Proxim_sessao = ?',
+        [id_pasta, id]
+      );
+
+      if (prevSessions.length > 0) {
+        const prevId = prevSessions[0].id;
+
+        // Passo B: O Remendo (ligar o anterior ao próximo)
+        // Só fazemos o remendo se não estivermos a apagar a última sessão de uma lista de 1 (onde prevId == id)
+        if (prevId != id) {
+          await db.query(
+            'UPDATE sessoes SET id_Proxim_sessao = ? WHERE id = ?',
+            [nextId, prevId]
+          );
+        }
+      }
+    }
+
+    // Passo C: Eliminação
     await db.query('DELETE FROM sessoes WHERE id = ?', [id]);
-    res.json({ message: 'Sessão apagada com sucesso' });
+    res.json({ message: 'Sessão apagada com sucesso (Corrente remendada)' });
   } catch (err) {
-    console.error(err);
+    console.error('Erro ao apagar sessão circular:', err);
     res.status(500).json({ error: 'Erro ao apagar sessão' });
+  }
+};
+
+exports.getSessaoById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [sessoes] = await db.query('SELECT * FROM sessoes WHERE id = ?', [id]);
+    if (sessoes.length === 0) return res.status(404).json({ error: 'Sessão não encontrada' });
+
+    const sessao = sessoes[0];
+
+    // Obter exercícios (Lendo nome diretamente da tabela sessao_exercicios)
+    const [exercicios] = await db.query(
+      'SELECT * FROM sessao_exercicios WHERE id_sessao = ? ORDER BY ordem ASC',
+      [id]
+    );
+
+    // Obter sets para cada exercício
+    for (const ex of exercicios) {
+      const [sets] = await db.query('SELECT * FROM exercicio_sets WHERE id_exercicio = ? ORDER BY ordem ASC', [ex.id]);
+      ex.sets = sets;
+    }
+
+    sessao.exercicios = exercicios;
+    res.json(sessao);
+  } catch (err) {
+    console.error('Erro ao obter detalhes da sessão:', err);
+    res.status(500).json({ error: 'Erro ao obter detalhes da sessão' });
   }
 };
 
 exports.updateSessao = async (req, res) => {
   const { id } = req.params;
-  const { nome } = req.body;
+  const { nome, exercicios } = req.body;
 
   if (!nome) return res.status(400).json({ error: 'Nome da sessão é obrigatório' });
 
   try {
+    // Passo A: Atualizar dados básicos da sessão
     await db.query('UPDATE sessoes SET nome = ? WHERE id = ?', [nome, id]);
+
+    // Passo B: Limpeza (Sets primeiro devido à FK, depois Exercícios)
+    const [currentExs] = await db.query('SELECT id FROM sessao_exercicios WHERE id_sessao = ?', [id]);
+    const exIds = currentExs.map(ex => ex.id);
+
+    if (exIds.length > 0) {
+      await db.query('DELETE FROM exercicio_sets WHERE id_exercicio IN (?)', [exIds]);
+    }
+    await db.query('DELETE FROM sessao_exercicios WHERE id_sessao = ?', [id]);
+
+    // Passo C: Re-inserção da nova lista
+    if (exercicios && Array.isArray(exercicios)) {
+      for (const ex of exercicios) {
+        const [resultEx] = await db.query(
+          'INSERT INTO sessao_exercicios (id_sessao, exercicio_api_id, nome, notas, ordem, imagem, bodypart) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [id, ex.id_exercicio, ex.nome, ex.notas, ex.ordem, ex.imagem, ex.bodypart]
+        );
+        const newExId = resultEx.insertId;
+
+        if (ex.sets && Array.isArray(ex.sets)) {
+          for (const set of ex.sets) {
+            // Extração segura com fallbacks para evitar ER_BAD_NULL_ERROR
+            const tipo_set = set.tipo_set || 'REGULAR';
+            const peso = set.peso || 0;
+            const repeticoes_min = set.repeticoes_min || 0;
+            const repeticoes_max = set.repeticoes_max || 0;
+            const ordem = set.ordem || 1;
+
+            await db.query(
+              'INSERT INTO exercicio_sets (tipo_set, peso, repeticoes_min, repeticoes_max, ordem, id_exercicio, repeticoes_ultima_vez) VALUES (?, ?, ?, ?, ?, ?, 0)',
+              [tipo_set, peso, repeticoes_min, repeticoes_max, ordem, newExId]
+            );
+          }
+        }
+      }
+    }
+
     res.json({ message: 'Sessão atualizada com sucesso' });
   } catch (err) {
-    console.error(err);
+    console.error('Erro ao atualizar sessão:', err);
     res.status(500).json({ error: 'Erro ao atualizar sessão' });
   }
 };
 
 //Exercicos
 exports.addExercicio = async (req, res) => {
-  const { exercicio_api_id, notas, id_sessao, imagem, bodypart } = req.body;
+  const { exercicio_api_id, nome, notas, id_sessao, imagem, bodypart } = req.body;
 
   if (!exercicio_api_id || !id_sessao) {
     return res.status(400).json({ error: 'Campos obrigatórios em falta' });
@@ -214,13 +361,13 @@ exports.addExercicio = async (req, res) => {
 
   try {
     const [result] = await db.query(
-      'INSERT INTO sessao_exercicios (exercicio_api_id, notas, id_sessao, imagem, bodypart) VALUES (?, ?, ?, ?, ?)',
-      [exercicio_api_id, notas || '', id_sessao, imagem || null, bodypart || null]
+      'INSERT INTO sessao_exercicios (exercicio_api_id, nome, notas, id_sessao, imagem, bodypart) VALUES (?, ?, ?, ?, ?, ?)',
+      [exercicio_api_id, nome || '', notas || '', id_sessao, imagem || null, bodypart || null]
     );
 
     res.status(201).json({
       message: 'Exercício adicionado com sucesso',
-      exercicio: { id: result.insertId, exercicio_api_id, notas, id_sessao, imagem, bodypart }
+      exercicio: { id: result.insertId, exercicio_api_id, nome, notas, id_sessao, imagem, bodypart }
     });
   } catch (err) {
     console.error(err);
@@ -257,14 +404,14 @@ exports.deleteExercicio = async (req, res) => {
 
 exports.updateExercicio = async (req, res) => {
   const { id } = req.params;
-  const { exercicio_api_id, notas, imagem, bodypart } = req.body;
+  const { exercicio_api_id, nome, notas, imagem, bodypart } = req.body;
 
   if (!exercicio_api_id) return res.status(400).json({ error: 'ID do exercício é obrigatório' });
 
   try {
     await db.query(
-      'UPDATE sessao_exercicios SET exercicio_api_id = ?, notas = ?, imagem = ?, bodypart = ? WHERE id = ?',
-      [exercicio_api_id, notas || '', imagem || null, bodypart || null, id]
+      'UPDATE sessao_exercicios SET exercicio_api_id = ?, nome = ?, notas = ?, imagem = ?, bodypart = ? WHERE id = ?',
+      [exercicio_api_id, nome || '', notas || '', imagem || null, bodypart || null, id]
     );
     res.json({ message: 'Exercício atualizado com sucesso' });
   } catch (err) {

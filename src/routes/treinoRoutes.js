@@ -9,6 +9,7 @@ const {
   updatePasta,
   createSessao,
   getSessoes,
+  getSessaoById,
   deleteSessao,
   updateSessao,
   addExercicio,
@@ -37,6 +38,7 @@ router.post('/duplicar-pasta', authenticateToken, duplicatePastaGlobal);
 router.put('/pastas/:id', authenticateToken, updatePasta);
 
 // Sessões
+router.get('/sessao/details/:id', authenticateToken, getSessaoById);
 router.post('/sessao', authenticateToken, createSessao);
 router.get('/sessoes/:id_pasta', authenticateToken, getSessoes);
 router.delete('/sessao/:id', authenticateToken, deleteSessao);

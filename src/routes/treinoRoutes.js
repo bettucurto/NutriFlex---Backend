@@ -4,6 +4,7 @@ const {
   createPasta,
   getPastas,
   getPastasByGlobal,
+  getPublicWorkouts,
   deletePasta,
   duplicatePastaGlobal,
   updatePasta,
@@ -25,7 +26,7 @@ const {
   getExerciseDbBodyParts,
   getExerciseDbEquipments,
   getExerciseDbMuscles,
-  getExerciseDbTypes,
+  getExerciseDbTypes, updateSetHistory,
 } = require('../controllers/treinoController');
 const authenticateToken = require('../utils/authMiddleware');
 
@@ -33,6 +34,7 @@ const authenticateToken = require('../utils/authMiddleware');
 router.post('/pastas', authenticateToken, createPasta);
 router.get('/pastas/:id_user', authenticateToken, getPastas);
 router.get('/pastas/global', authenticateToken, getPastasByGlobal);
+router.get('/public-workouts', authenticateToken, getPublicWorkouts);
 router.delete('/pastas/:id', authenticateToken, deletePasta);
 router.post('/duplicar-pasta', authenticateToken, duplicatePastaGlobal);
 router.put('/pastas/:id', authenticateToken, updatePasta);
@@ -55,6 +57,7 @@ router.post('/set', authenticateToken, addExercicioSet);
 router.get('/sets/:id_exercicio', authenticateToken, getExercicioSets);
 router.put('/set/:id', authenticateToken, updateExercicioSet);
 router.delete('/set/:id', authenticateToken, deleteExercicioSet);
+router.put('/set/history/:id', authenticateToken, updateSetHistory);
 
 //ExerciseDB
 router.get('/exercises', authenticateToken, getExercisesController);
